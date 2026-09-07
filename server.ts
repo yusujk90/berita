@@ -14,6 +14,14 @@ app.use(express.json());
 // In-Memory cache for parsed & summarized articles to avoid constant API overhead,
 // stay fast, and manage token limits perfectly.
 const summariesCache = new Map<string, any>();
+const summariesByIdCache = new Map<string, any>();
+
+function saveToSummariesCache(cacheKey: string, article: any) {
+  summariesCache.set(cacheKey, article);
+  if (article && article.id) {
+    summariesByIdCache.set(article.id, article);
+  }
+}
 
 // Global in-memory cache to cool down and skip Gemini calls if quota limit is reached (rate limit of 429)
 let isGeminiQuotaExhaustedUntil = 0;
@@ -760,7 +768,7 @@ app.get("/api/news", async (req, res) => {
         const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
         defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
         
-        summariesCache.set(cacheKey, defaultData);
+        saveToSummariesCache(cacheKey, defaultData);
         summarizedArticles.push(defaultData);
         continue;
       }
@@ -771,7 +779,7 @@ app.get("/api/news", async (req, res) => {
         const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
         defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
         
-        summariesCache.set(cacheKey, defaultData);
+        saveToSummariesCache(cacheKey, defaultData);
         summarizedArticles.push(defaultData);
         continue;
       }
@@ -845,12 +853,12 @@ app.get("/api/news", async (req, res) => {
             isAiImage: false
           };
           
-          summariesCache.set(cacheKey, finalArticle);
+          saveToSummariesCache(cacheKey, finalArticle);
           summarizedArticles.push(finalArticle);
         } else {
           const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
           defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-          summariesCache.set(cacheKey, defaultData);
+          saveToSummariesCache(cacheKey, defaultData);
           summarizedArticles.push(defaultData);
         }
       } catch (geminiErr: any) {
@@ -861,7 +869,7 @@ app.get("/api/news", async (req, res) => {
         }
         const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
         defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-        summariesCache.set(cacheKey, defaultData);
+        saveToSummariesCache(cacheKey, defaultData);
         summarizedArticles.push(defaultData);
       }
     }
@@ -881,6 +889,120 @@ app.get("/api/news", async (req, res) => {
 });
 
 // Endpoint to generate manual slang translation or detailed lengthy paragraphs manually
+// Dedicated Single Article Endpoint
+app.get("/api/news/:id", async (req, res) => {
+  const { id } = req.params;
+
+  if (summariesByIdCache.has(id)) {
+    return res.json({ success: true, article: summariesByIdCache.get(id) });
+  }
+
+  for (const article of summariesCache.values()) {
+    if (article.id === id) {
+      summariesByIdCache.set(id, article);
+      return res.json({ success: true, article });
+    }
+  }
+
+  res.status(404).json({ error: true, message: "Artikel tidak ditemukan" });
+});
+
+// Super Powerful Recommendation Engine Endpoint
+app.post("/api/recommendations", async (req, res) => {
+  try {
+    const { currentId, historyCategories = {}, historyKeywords = {} } = req.body;
+
+    let candidateArticles: Array<any> = Array.from(summariesCache.values());
+
+    // Deduplicate candidate articles
+    const seenIds = new Set<string>();
+    candidateArticles = candidateArticles.filter((art) => {
+      if (!art || !art.id || art.id === currentId || seenIds.has(art.id)) return false;
+      seenIds.add(art.id);
+      return true;
+    });
+
+    const currentArticle = currentId ? summariesByIdCache.get(currentId) || candidateArticles.find((a) => a.id === currentId) : null;
+
+    const scored = candidateArticles.map((article) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      // 1. Keyword Overlap with Current Article
+      if (currentArticle && currentArticle.keywords) {
+        const currentKws = new Set(currentArticle.keywords.map((k: string) => k.toLowerCase()));
+        const targetKws = (article.keywords || []).map((k: string) => k.toLowerCase());
+        let overlap = 0;
+        targetKws.forEach((k: string) => {
+          if (currentKws.has(k)) overlap++;
+        });
+        if (overlap > 0) {
+          score += overlap * 30;
+          reasons.push("Topik & Keyword Sangat Mirip");
+        }
+      }
+
+      // 2. Category Affinity Match
+      const catFreq = historyCategories[article.category] || 0;
+      if (catFreq > 0) {
+        score += Math.min(catFreq * 15, 35);
+        reasons.push(`Kategori #${article.category.toUpperCase()} Kesukaan Lo`);
+      }
+
+      // 3. User Keyword History Match
+      if (article.keywords && Array.isArray(article.keywords)) {
+        let kwScore = 0;
+        article.keywords.forEach((kw: string) => {
+          const hits = historyKeywords[kw.toLowerCase()] || 0;
+          kwScore += hits * 10;
+        });
+        if (kwScore > 0) {
+          score += Math.min(kwScore, 30);
+          reasons.push("Sesuai Minat Bacaan Lo");
+        }
+      }
+
+      // 4. Recency Boost
+      const pubTime = new Date(article.publishedAt).getTime();
+      const hoursOld = (Date.now() - pubTime) / (1000 * 60 * 60);
+      if (hoursOld < 4) {
+        score += 25;
+        reasons.push("Breaking News Terhangat");
+      }
+
+      const matchPercentage = Math.min(99, 78 + Math.floor(Math.min(score, 100) * 0.21));
+
+      let badge = "✨ Rekomendasi Kilas AI";
+      if (currentArticle && score > 30) {
+        badge = `🎯 ${matchPercentage}% Match Topik Mirip`;
+      } else if (hoursOld < 4) {
+        badge = "🔥 Breaking News Terhangat";
+      } else if (catFreq > 2) {
+        badge = "⭐ Pilihan Favorit Lo";
+      } else {
+        badge = "🚀 Trending di Circle";
+      }
+
+      return {
+        ...article,
+        score,
+        matchPercentage,
+        recommendationBadge: badge,
+        recommendationReason: reasons[0] || "Disukai banyak pembaca muda di Kilas Berita Gaul"
+      };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    res.json({
+      success: true,
+      recommendations: scored.slice(0, 6)
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 app.post("/api/summarize", async (req, res) => {
   const { title, context, category, mode } = req.body;
   if (!title) {
@@ -1020,7 +1142,7 @@ app.post("/api/generate-ai-image", async (req, res) => {
         if (article.id === articleId) {
           article.imageUrl = base64Image;
           article.isAiImage = true;
-          summariesCache.set(key, article);
+          saveToSummariesCache(key, article);
           break;
         }
       }

@@ -5,7 +5,7 @@ import GlosariumGaul from "./components/GlosariumGaul";
 import DiscussionModal from "./components/DiscussionModal";
 import NotificationSettingsModal from "./components/NotificationSettingsModal";
 import DetailBerita from "./components/DetailBerita";
-import { slugify } from "./utils";
+import { slugify, trackArticleView, getUserReadingHistory, scoreArticleRecommendation } from "./utils";
 import { SummarizedArticle, NotificationPreferences, AppNotification } from "./types";
 import { 
   MapPin, 

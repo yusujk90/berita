@@ -14,6 +14,11 @@ export interface SummarizedArticle {
   keywords: string[];
   imageUrl: string;
   isAiImage: boolean;
+
+  // Smart Recommendation Engine attributes
+  matchPercentage?: number;
+  recommendationReason?: string;
+  recommendationBadge?: string;
 }
 
 export interface NewsResponse {
@@ -47,3 +52,9 @@ export interface AppNotification {
   isRead: boolean;
 }
 
+export interface UserReadingHistory {
+  viewedArticleIds: string[];
+  categoryCounts: Record<string, number>;
+  keywordCounts: Record<string, number>;
+  lastActive: string;
+}
