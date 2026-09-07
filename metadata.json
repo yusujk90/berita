@@ -1,0 +1,6 @@
+{
+  "name": "Kilas Berita Gaul",
+  "description": "News aggregator modern yang menyajikan ringkasan berita up-to-date terpercaya dengan gaya bahasa santai, gaul, dan nyantai ala anak muda.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
