@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ArrowLeft, ExternalLink, Calendar, MessageSquare, Sparkles, Send, ThumbsUp, ThumbsDown, ShieldAlert, Bookmark } from "lucide-react";
+import { ArrowLeft, ExternalLink, Calendar, MessageSquare, Sparkles, Send, ThumbsUp, ThumbsDown, ShieldAlert, Bookmark, Volume2, VolumeX, Zap, BookOpenText } from "lucide-react";
 import { SummarizedArticle, ArticleComment } from "../types";
 import { slugify } from "../utils"; // We can implement slugify helper
 
@@ -30,6 +30,10 @@ export default function DetailBerita({
     return localStorage.getItem("kilassantai_username") || "SobatSantai_" + Math.random().toString(36).substring(2, 6);
   });
   const [moderationWarning, setModerationWarning] = useState<string | null>(null);
+  const [summaryMode, setSummaryMode] = useState<"quick" | "deep">("deep");
+  const [quickSummary, setQuickSummary] = useState<string>("");
+  const [isLoadingQuick, setIsLoadingQuick] = useState<boolean>(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   // Scroll to top when loading a new article
   useEffect(() => {
@@ -185,6 +189,60 @@ export default function DetailBerita({
   const relatedArticles = allArticles
     .filter(art => art.category === article.category && art.id !== article.id)
     .slice(0, 3);
+
+  // Text-to-Speech
+  const handleTTS = () => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    const textToRead = summaryMode === "quick" ? (quickSummary || article.slangSummary) : (longSummary || article.slangSummary);
+    if (!textToRead) return;
+    const utterance = new SpeechSynthesisUtterance(textToRead);
+    utterance.lang = "id-ID";
+    utterance.rate = 1;
+    utterance.onend = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+    setIsSpeaking(true);
+  };
+
+  // Stop TTS on unmount
+  useEffect(() => {
+    return () => { window.speechSynthesis.cancel(); };
+  }, []);
+
+  // Fetch quick summary
+  const handleQuickSummary = async () => {
+    if (quickSummary) { setSummaryMode("quick"); return; }
+    setSummaryMode("quick");
+    setIsLoadingQuick(true);
+    try {
+      const cacheKey = `quick_summary_${article.id}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) { setQuickSummary(cached); setIsLoadingQuick(false); return; }
+      const response = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: article.sourceTitle, context: article.originalDescription || article.slangSummary, category: article.category, mode: "short" })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.slangSummary) {
+          setQuickSummary(data.slangSummary);
+          localStorage.setItem(cacheKey, data.slangSummary);
+        } else {
+          setQuickSummary(article.slangSummary);
+        }
+      } else {
+        setQuickSummary(article.slangSummary);
+      }
+    } catch {
+      setQuickSummary(article.slangSummary);
+    } finally {
+      setIsLoadingQuick(false);
+    }
+  };
 
   const formatDate = (dateStr: string) => {
     try {

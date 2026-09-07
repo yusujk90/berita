@@ -469,7 +469,7 @@ async function generateContentWithFallbackModel(
     throw new Error("Quota exceeded (Rate limit / 429 cooling period active). Try again later.");
   }
 
-  const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+  const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -905,7 +905,7 @@ app.post("/api/summarize", async (req, res) => {
   }
 
   try {
-    const promptLength = isLong ? "4 sampai 5 paragraf santai namun padat informasi mendalam (sekitar 250-350 kata)" : "3 paragraf detail (sekitar 180-250 kata)";
+    const isShort = mode === "short"; const promptLength = isLong ? "4 sampai 5 paragraf santai namun padat informasi mendalam (sekitar 250-350 kata)" : isShort ? "1 sampai 2 paragraf singkat padat dan super to-the-point (sekitar 80-120 kata)" : "3 paragraf detail (sekitar 180-250 kata)";
     const prompt = `Rewrite and summarize this news article in a highly casual Indonesian street-slang style (bahasa gaul anak muda / Jaksel, santai dan menyenangkan tapi tetap sopan & akurat).
     
     Original Title: ${title}
@@ -991,7 +991,7 @@ app.post("/api/generate-ai-image", async (req, res) => {
     console.log(`Generating AI illustration with prompt: "${visualPrompt}"`);
     
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-2.0-flash-exp',
       contents: {
         parts: [
           { text: visualPrompt }
