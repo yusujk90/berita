@@ -477,7 +477,7 @@ async function generateContentWithFallbackModel(
     throw new Error("Quota exceeded (Rate limit / 429 cooling period active). Try again later.");
   }
 
-  const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-flash-lite"];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
