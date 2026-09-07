@@ -7,6 +7,7 @@ import { createServer as createViteServer } from "vite";
 dotenv.config();
 
 const app = express();
+export { app };
 const PORT = 3000;
 
 app.use(express.json());
