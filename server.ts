@@ -422,31 +422,31 @@ const FALLBACK_NEWS_POOL: Record<string, Array<{ title: string; link: string; de
 const BASE_FEEDS: Record<string, string[]> = {
   indonesia: [
     "https://www.cnnindonesia.com/nasional/rss",
-    "https://www.antaranews.com/rss/nasional.xml",
-    "https://rss.detik.com/index.php/detikcom"
+    "https://rss.tempo.co/nasional",
+    "https://www.cnbcindonesia.com/news/rss"
   ],
   "luar-negeri": [
     "https://www.cnnindonesia.com/internasional/rss",
-    "https://www.antaranews.com/rss/dunia.xml"
+    "https://rss.tempo.co/dunia"
   ],
   teknologi: [
     "https://www.cnnindonesia.com/teknologi/rss",
-    "https://www.antaranews.com/rss/tekno.xml",
-    "https://rss.detik.com/index.php/detikinet"
+    "https://rss.tempo.co/tekno",
+    "https://rss.tempo.co/tekno"
   ],
   hiburan: [
     "https://www.cnnindonesia.com/hiburan/rss",
-    "https://www.antaranews.com/rss/hiburan.xml",
-    "https://rss.detik.com/index.php/hot"
+    "https://rss.tempo.co/seleb",
+    "https://rss.tempo.co/seleb"
   ],
   olahraga: [
     "https://www.cnnindonesia.com/olahraga/rss",
-    "https://www.antaranews.com/rss/olahraga.xml",
-    "https://rss.detik.com/index.php/sport"
+    "https://rss.tempo.co/bola",
+    "https://rss.tempo.co/bola"
   ],
   viral: [
     "https://www.cnbcindonesia.com/news/rss",
-    "https://www.antaranews.com/rss/terbaru.xml"
+    "https://www.cnnindonesia.com/nasional/rss"
   ]
 };
 
