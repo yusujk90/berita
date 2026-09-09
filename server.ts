@@ -12,16 +12,13 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Vercel Serverless path normalization middleware & CORS headers
+// Vercel Serverless CORS headers
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
     return res.status(200).end();
-  }
-  if (req.url.startsWith("/api/")) {
-    req.url = req.url.substring(4); // Remove /api prefix so both /api/news and /news match smoothly
   }
   next();
 });
@@ -668,7 +665,7 @@ function generateRealtimeBreakingNews(category: string): Array<{ title: string; 
 }
 
 // API Routes
-app.get("/news", async (req, res) => {
+app.get(["/news", "/api/news"], async (req, res) => {
   const category = (req.query.category as string) || "indonesia";
   const feedsToFetch = BASE_FEEDS[category] || BASE_FEEDS.indonesia;
   const page = parseInt(req.query.page as string) || 1;
@@ -905,7 +902,7 @@ app.get("/news", async (req, res) => {
 
 // Endpoint to generate manual slang translation or detailed lengthy paragraphs manually
 // Dedicated Single Article Endpoint
-app.get("/news/:id", async (req, res) => {
+app.get(["/news/:id", "/api/news/:id"], async (req, res) => {
   const { id } = req.params;
 
   if (summariesByIdCache.has(id)) {
@@ -923,7 +920,7 @@ app.get("/news/:id", async (req, res) => {
 });
 
 // Super Powerful Recommendation Engine Endpoint
-app.post("/recommendations", async (req, res) => {
+app.post(["/recommendations", "/api/recommendations"], async (req, res) => {
   try {
     const { currentId, historyCategories = {}, historyKeywords = {} } = req.body;
 
@@ -1018,7 +1015,7 @@ app.post("/recommendations", async (req, res) => {
   }
 });
 
-app.post("/summarize", async (req, res) => {
+app.post(["/summarize", "/api/summarize"], async (req, res) => {
   const { title, context, category, mode } = req.body;
   if (!title) {
     return res.status(400).json({ error: true, message: "Missing title parameter." });
@@ -1111,7 +1108,7 @@ app.post("/summarize", async (req, res) => {
 });
 
 // Endpoint to generate customized premium AI illustration using gemini-2.5-flash-image
-app.post("/generate-ai-image", async (req, res) => {
+app.post(["/generate-ai-image", "/api/generate-ai-image"], async (req, res) => {
   const { articleId, catchyTitle, keywords, category } = req.body;
   
   if (!ai) {
