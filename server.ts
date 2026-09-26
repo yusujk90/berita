@@ -684,7 +684,10 @@ app.get(["/news", "/api/news"], async (req, res) => {
         if (cached && (Date.now() - cached.cachedAt < THREE_MINUTES)) {
           xmlText = cached.xmlText;
         } else {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
           const response = await fetch(url, {
+            signal: controller.signal,
             headers: {
               "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
               "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -692,6 +695,7 @@ app.get(["/news", "/api/news"], async (req, res) => {
               "Cache-Control": "no-cache"
             }
           });
+          clearTimeout(timeoutId);
           if (response.ok) {
             xmlText = await response.text();
             feedXmlCache.set(url, { xmlText, cachedAt: Date.now() });
@@ -743,23 +747,21 @@ app.get(["/news", "/api/news"], async (req, res) => {
     const endIndex = page * limit;
     const sliceItems = sortedItems.slice(startIndex, endIndex);
       
-    // Summarize or retrieve from cache
+    // Summarize: use offline translator for speed (Vercel 10s timeout safe)
     const summarizedArticles = [];
-    let newGeminiCallsCount = 0; // High-precision budget control to stay strictly under the free-tier rate and daily quotas
-    
+
     for (const article of sliceItems) {
       const cacheKey = article.link || article.title;
-      
+
       if (summariesCache.has(cacheKey)) {
         summarizedArticles.push(summariesCache.get(cacheKey));
         continue;
       }
-      
-      // Fallback data if Gemini is not ready or failed
+
       const cleanId = Math.random().toString(36).substring(2, 9);
       const offlineSlang = makeSlangTranslation(article.title, article.description, category);
-      
-      const defaultData = {
+
+      const finalArticle = {
         id: cleanId,
         sourceTitle: article.title,
         sourceUrl: article.link,
@@ -774,116 +776,9 @@ app.get(["/news", "/api/news"], async (req, res) => {
         imageUrl: getCategoryFallbackImage(category, cacheKey),
         isAiImage: false
       };
-      
-      if (!ai || Date.now() < isGeminiQuotaExhaustedUntil) {
-        // Fetch real image from scraped Unsplash based on keywords
-        const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
-        defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-        
-        saveToSummariesCache(cacheKey, defaultData);
-        summarizedArticles.push(defaultData);
-        continue;
-      }
-      
-      // Strict throttle: cap at maximum 2 new Gemini API calls per request batch.
-      // Subsequent custom slang posts will immediately use the high-fidelity local generator.
-      if (newGeminiCallsCount >= 2) {
-        const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
-        defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-        
-        saveToSummariesCache(cacheKey, defaultData);
-        summarizedArticles.push(defaultData);
-        continue;
-      }
-      
-      try {
-        newGeminiCallsCount++;
-        
-        // AI compilation of slangy summary
-        const prompt = `Rewrite and summarize this news article in a casual Indonesian street-slang style (bahasa gaul anak muda / Jaksel, santai dan menyenangkan tapi tetap sopan & akurat). 
-        
-        Original Title: ${article.title}
-        Original Context: ${article.description}
-        Source: ${article.sourceName}
-        
-        Do not copy-paste. Paraphrase thoroughly. Ensure the catchyTitle is exciting but absolutely faithful to the actual event facts.
-        
-        Instructions to make it more engaging and longer:
-        - Divide the description/summary into exactly 3 paragraphs separated by double newlines (\n\n).
-        - Paragraph 1: An exciting, attention-grabbing young slang intro explaining why this is trending.
-        - Paragraph 2: Full detailed elaboration of the chronological facts, including context, reasons, and actions.
-        - Paragraph 3: Relatability/discussion point, asking the circle to discuss, with a stylish young slang sign-off.
-        - The target length is around 180 to 250 words total. Do not keep it too short.`;
-        
-        const response = await generateContentWithFallbackModel(ai, {
-          contents: prompt,
-          systemInstruction: "Kamu adalah asisten jurnalis berita anak muda paling gaul, santai, dan up-to-date di Indonesia bermerek 'Kilas Berita Gaul'. Bawa vibenya asik, pakai kata seperti 'gengs', 'beneran', 'sih', 'lho', 'guys', 'gokil', 'btw', 'fyi', 'kudet'. Format jawabanmu selalu dalam JSON sesuai schema yang diminta.",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              catchyTitle: {
-                type: Type.STRING,
-                description: "Judul berita versi gaul yang keren, menggelitik rasa penasaran tapi WAJIB akurat sesuai fakta."
-              },
-              slangSummary: {
-                type: Type.STRING,
-                description: "Ringkasan berita lengkap sepanjang 3 paragraf detail (sekitar 180-250 kata), dipisahkan dengan double newline \\n\\n, diparafrase total dengan gaya santai remaja gaul."
-              },
-              keywords: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: "3-4 kata kunci bahasa Inggris yang menggambarkan visual berita ini untuk mencari gambar."
-              },
-              tagline: {
-                type: Type.STRING,
-                description: "Satu kalimat celetukan seru nan kasual tentang berita ini (misal: 'Gokil, jangan sampai kelewatan nih guys!')."
-              }
-            },
-            required: ["catchyTitle", "slangSummary", "keywords", "tagline"]
-          }
-        });
-        
-        if (response.text) {
-          const parsedRes = JSON.parse(response.text.trim());
-          const keywordsArray = parsedRes.keywords || offlineSlang.keywords;
-          const queryTerm = keywordsArray.slice(0, 2).join(" ") || category;
-          const imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-          
-          const finalArticle = {
-            id: cleanId,
-            sourceTitle: article.title,
-            sourceUrl: article.link,
-            sourceName: article.sourceName,
-            publishedAt: article.pubDate || new Date().toISOString(),
-            originalDescription: article.description,
-            catchyTitle: parsedRes.catchyTitle || defaultData.catchyTitle,
-            slangSummary: parsedRes.slangSummary || defaultData.slangSummary,
-            tagline: parsedRes.tagline || defaultData.tagline,
-            category,
-            keywords: keywordsArray,
-            imageUrl: imageUrl,
-            isAiImage: false
-          };
-          
-          saveToSummariesCache(cacheKey, finalArticle);
-          summarizedArticles.push(finalArticle);
-        } else {
-          const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
-          defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-          saveToSummariesCache(cacheKey, defaultData);
-          summarizedArticles.push(defaultData);
-        }
-      } catch (geminiErr: any) {
-        console.warn("Gemini summarizing rate/quota limit or service error. Applying high-fidelity Indonesian offline translator fallback:", geminiErr);
-        const errStr = String(geminiErr);
-        if (errStr.includes("429") || errStr.toLowerCase().includes("quota") || errStr.includes("RESOURCE_EXHAUSTED")) {
-          isGeminiQuotaExhaustedUntil = Date.now() + 5 * 60 * 1000; // set 5 min block to respect rate limits
-        }
-        const queryTerm = offlineSlang.keywords.slice(0, 2).join(" ") || category;
-        defaultData.imageUrl = await getDynamicUnsplashImage(queryTerm, category);
-        saveToSummariesCache(cacheKey, defaultData);
-        summarizedArticles.push(defaultData);
-      }
+
+      saveToSummariesCache(cacheKey, finalArticle);
+      summarizedArticles.push(finalArticle);
     }
     
     res.json({
@@ -1125,7 +1020,7 @@ app.post(["/generate-ai-image", "/api/generate-ai-image"], async (req, res) => {
     console.log(`Generating AI illustration with prompt: "${visualPrompt}"`);
     
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.5-flash',
       contents: {
         parts: [
           { text: visualPrompt }
@@ -1224,4 +1119,6 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
