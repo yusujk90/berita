@@ -747,8 +747,11 @@ app.get(["/news", "/api/news"], async (req, res) => {
     const endIndex = page * limit;
     const sliceItems = sortedItems.slice(startIndex, endIndex);
       
-    // Summarize: use offline translator for speed (Vercel 10s timeout safe)
-    const summarizedArticles = [];
+    // Hybrid summarizer: first 2 uncached articles use Gemini AI, rest use fast offline translator
+    // Keeps total response time under Vercel 10s limit while providing AI quality
+    const summarizedArticles: any[] = [];
+    let geminiCallsThisBatch = 0;
+    const MAX_GEMINI_PER_BATCH = 2;
 
     for (const article of sliceItems) {
       const cacheKey = article.link || article.title;
@@ -760,8 +763,11 @@ app.get(["/news", "/api/news"], async (req, res) => {
 
       const cleanId = Math.random().toString(36).substring(2, 9);
       const offlineSlang = makeSlangTranslation(article.title, article.description, category);
+      // Hash based on title for unique image selection
+      const titleHash = (article.title || "").split("").reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
+      const imgUrl = getCategoryFallbackImage(category, article.title || cacheKey);
 
-      const finalArticle = {
+      let finalArticle: any = {
         id: cleanId,
         sourceTitle: article.title,
         sourceUrl: article.link,
@@ -773,9 +779,46 @@ app.get(["/news", "/api/news"], async (req, res) => {
         tagline: offlineSlang.tagline,
         category,
         keywords: offlineSlang.keywords,
-        imageUrl: getCategoryFallbackImage(category, cacheKey),
+        imageUrl: imgUrl,
         isAiImage: false
       };
+
+      // Try Gemini AI for first MAX_GEMINI_PER_BATCH uncached articles
+      if (ai && geminiCallsThisBatch < MAX_GEMINI_PER_BATCH && Date.now() >= isGeminiQuotaExhaustedUntil) {
+        try {
+          geminiCallsThisBatch++;
+          const prompt = `Rewrite this news in casual Indonesian youth slang (bahasa gaul Jaksel). Be factual, fun, engaging.\n\nTitle: ${article.title}\nContext: ${article.description}\nSource: ${article.sourceName}\n\nMake catchyTitle exciting but accurate. slangSummary should be 3 paragraphs (~200 words), separated by \\n\\n. Use gengs, beneran, sih, gokil, fyi, btw. Give 3-4 English visual keywords.`;
+
+          const response = await generateContentWithFallbackModel(ai, {
+            contents: prompt,
+            systemInstruction: "Kamu jurnalis berita anak muda gaul Indonesia brand 'Kilas Berita Gaul'. Pakai bahasa santai Jaksel. Format JSON sesuai schema.",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                catchyTitle: { type: Type.STRING, description: "Judul gaul yang akurat" },
+                slangSummary: { type: Type.STRING, description: "3 paragraf ~200 kata gaya gaul, pisahkan dengan \\n\\n" },
+                keywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3-4 English visual keywords" },
+                tagline: { type: Type.STRING, description: "Celetukan seru 1 kalimat" }
+              },
+              required: ["catchyTitle", "slangSummary", "keywords", "tagline"]
+            }
+          });
+
+          if (response.text) {
+            const parsed = JSON.parse(response.text.trim());
+            finalArticle.catchyTitle = parsed.catchyTitle || finalArticle.catchyTitle;
+            finalArticle.slangSummary = parsed.slangSummary || finalArticle.slangSummary;
+            finalArticle.keywords = parsed.keywords || finalArticle.keywords;
+            finalArticle.tagline = parsed.tagline || finalArticle.tagline;
+          }
+        } catch (gemErr: any) {
+          console.warn("[Gemini] Error, using offline fallback:", gemErr?.message);
+          const errStr = String(gemErr);
+          if (errStr.includes("429") || errStr.includes("RESOURCE_EXHAUSTED")) {
+            isGeminiQuotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
+          }
+        }
+      }
 
       saveToSummariesCache(cacheKey, finalArticle);
       summarizedArticles.push(finalArticle);

@@ -54,12 +54,12 @@ export default function NewsCard({
   return (
     <div 
       id={`news-card-${article.id}`} 
-      className="group flex flex-col bg-white rounded-3xl border border-slate-100 hover:border-slate-200/80 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden h-full relative"
+      className="group flex flex-col bg-white rounded-2xl border border-slate-200/60 hover:border-blue-300/50 shadow-md hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-300 overflow-hidden h-full relative"
     >
       {/* Article Header Image */}
       <div 
         onClick={onViewDetail}
-        className="relative h-48 md:h-52 overflow-hidden bg-slate-900 flex-shrink-0 cursor-pointer"
+        className="relative h-52 md:h-56 overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 flex-shrink-0 cursor-pointer"
       >
         <img 
           src={article.imageUrl} 
